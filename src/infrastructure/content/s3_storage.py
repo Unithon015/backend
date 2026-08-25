@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 
 from src.application.content.service import ContentStorage, UploadPayload
 
@@ -16,6 +17,8 @@ class S3ContentStorage(ContentStorage):
             region_name=region,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
+            endpoint_url=f"https://s3.{region}.amazonaws.com",
+            config=Config(signature_version="s3v4"),
         )
 
     async def store(self, submission_id: UUID, payload: UploadPayload) -> str:
