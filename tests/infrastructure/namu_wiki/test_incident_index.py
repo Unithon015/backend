@@ -26,6 +26,7 @@ class TestNamuWikiIncidentCategoryParser(unittest.TestCase):
         )
 
         self.assertEqual(len(entries), 2)
-        self.assertEqual(entries[0].incident_year, 2025)
-        self.assertEqual(entries[1].normalized_title, "대전오월드늑대탈출사건")
-        self.assertTrue(all(entry.article_url.startswith("https://namu.wiki/w/") for entry in entries))
+        self.assertEqual(entries[0].year, 2025)
+        self.assertEqual(entries[1].match_keywords[-1], "대전오월드늑대탈출사건")
+        self.assertTrue(all(entry.source_url.startswith("https://namu.wiki/w/") for entry in entries))
+        self.assertTrue(all(entry.source_type == "NAMU_WIKI" for entry in entries))

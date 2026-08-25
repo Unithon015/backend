@@ -10,7 +10,10 @@ from src.interface.namu_wiki import router as router_module
 class FakeIncidentIndexService:
     def __init__(self):
         self.entry = IncidentIndexEntry(
-            "2025년 예시 사건", "2025년예시사건", "https://namu.wiki/w/example", 2025
+            title="2025년 예시 사건",
+            year=2025,
+            source_url="https://namu.wiki/w/example",
+            match_keywords=("2025년 예시 사건", "2025년예시사건"),
         )
 
     def list_active_entries(self, year):
@@ -36,6 +39,7 @@ class NamuWikiIncidentIndexRouterTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["entries"][0]["title"], "2025년 예시 사건")
+        self.assertEqual(response.json()["entries"][0]["source_type"], "NAMU_WIKI")
 
     def test_syncs_the_requested_year(self):
         response = self.client.post("/namu-wiki/incidents/2025/sync")

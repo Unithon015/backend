@@ -6,11 +6,22 @@ from src.infrastructure.namu_wiki.incident_index import YEARLY_INCIDENT_CATEGORY
 
 class NamuWikiIncidentEntryResponse(BaseModel):
     title: str
-    article_url: str
+    year: int
+    risk_categories: list[str]
+    match_keywords: list[str]
+    source_url: str
+    source_type: str
 
     @classmethod
     def from_domain(cls, entry: IncidentIndexEntry) -> "NamuWikiIncidentEntryResponse":
-        return cls(title=entry.title, article_url=entry.article_url)
+        return cls(
+            title=entry.title,
+            year=entry.year,
+            risk_categories=list(entry.risk_categories),
+            match_keywords=list(entry.match_keywords),
+            source_url=entry.source_url,
+            source_type=entry.source_type,
+        )
 
 
 class NamuWikiIncidentIndexResponse(BaseModel):

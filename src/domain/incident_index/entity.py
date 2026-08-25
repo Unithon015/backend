@@ -6,9 +6,11 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class IncidentIndexEntry:
     title: str
-    normalized_title: str
-    article_url: str
-    incident_year: int
+    year: int
+    source_url: str
+    risk_categories: tuple[str, ...] = ()
+    match_keywords: tuple[str, ...] = ()
+    source_type: str = "NAMU_WIKI"
 
 
 @dataclass(frozen=True)

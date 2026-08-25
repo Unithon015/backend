@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -31,7 +31,7 @@ class NamuWikiIncidentSourceModel(Base):
 class NamuWikiIncidentIndexEntryModel(Base):
     __tablename__ = "namu_wiki_incident_index_entries"
     __table_args__ = (
-        UniqueConstraint("source_id", "article_url", name="uq_namu_wiki_source_article_url"),
+        UniqueConstraint("source_id", "source_url", name="uq_namu_wiki_source_article_url"),
     )
 
     id: Mapped[UUID] = mapped_column(PostgresUUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -40,8 +40,11 @@ class NamuWikiIncidentIndexEntryModel(Base):
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     normalized_title: Mapped[str] = mapped_column(String(500), index=True, nullable=False)
-    article_url: Mapped[str] = mapped_column(Text, nullable=False)
-    incident_year: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    year: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    risk_categories: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    match_keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), default="NAMU_WIKI", nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
