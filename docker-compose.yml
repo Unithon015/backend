@@ -1,6 +1,8 @@
 services:
   baekend:
-    image: ${DOCKER_IMAGE}
+    image: ${DOCKER_IMAGE:-bbik-baekend:local}
+    build:
+      context: .
     ports:
       - "8000:8000"
     environment:
@@ -10,6 +12,7 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       JWT_SECRET: ${JWT_SECRET}
       UPLOAD_DIRECTORY: ${UPLOAD_DIRECTORY:-/app/data/uploads}
+      NAMU_WIKI_INITIAL_SYNC_ENABLED: ${NAMU_WIKI_INITIAL_SYNC_ENABLED:-true}
       NAMU_WIKI_2026_SYNC_ENABLED: ${NAMU_WIKI_2026_SYNC_ENABLED:-true}
     restart: unless-stopped
     volumes:

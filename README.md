@@ -32,8 +32,9 @@ curl -X POST http://localhost:8000/contents \
 
 ## 나무위키 사건 인덱스
 
-나무위키의 2024·2025년 사건사고 분류를 초기 적재하고, 2026년 분류는 매일 자정
-`Asia/Seoul`에 동기화합니다. 수집하는 데이터는 분류 페이지의 사건 제목과 문서 URL뿐이며,
+서버가 처음 시작될 때 나무위키의 2024·2025·2026년 사건사고 분류를 자동 적재하고,
+2026년 분류는 매일 자정 `Asia/Seoul`에 동기화합니다. 이미 한 번 정상 적재한 연도는
+서버 재시작 때 다시 수집하지 않습니다. 수집하는 데이터는 분류 페이지의 사건 제목과 문서 URL뿐이며,
 사용자에게 보여 줄 최종 근거는 뉴스·공식 출처를 별도로 연결해야 합니다.
 
 ```powershell
@@ -42,10 +43,18 @@ python scripts/sync_namu_wiki_incidents.py --years 2024 2025 2026
 python scripts/seed_meta_policy_catalog.py
 ```
 
-서버에 `DATABASE_URL`이 있으면 2026년 동기화 스케줄러가 자정에 실행됩니다. 다중 인스턴스
-배포라면 한 인스턴스만 `NAMU_WIKI_2026_SYNC_ENABLED=true`로 두거나, AWS EventBridge에서
-동일 스크립트를 하루 한 번 실행해야 합니다. 개발 환경에서는 `false`로 비활성화할 수 있습니다.
-RDS가 사설 서브넷이라면 초기 적재 명령도 EC2 또는 같은 VPC 내부에서 실행해야 합니다.
+서버에 `DATABASE_URL`이 있으면 최초 적재가 시작 시 실행되고 2026년 동기화 스케줄러가
+자정에 실행됩니다. `NAMU_WIKI_INITIAL_SYNC_ENABLED=false`로 최초 적재를,
+`NAMU_WIKI_2026_SYNC_ENABLED=false`로 일일 동기화를 각각 비활성화할 수 있습니다. 다중 인스턴스
+배포라면 최초 적재와 일일 스케줄러가 한 인스턴스에서만 실행되도록 설정하거나, AWS EventBridge에서
+동일 스크립트를 하루 한 번 실행해야 합니다. RDS가 사설 서브넷이라면 초기 적재 명령도 EC2 또는 같은 VPC 내부에서 실행해야 합니다.
+
+| Endpoint | 설명 |
+| --- | --- |
+| `GET /namu-wiki/incidents/{year}` | DB에 적재된 해당 연도의 활성 사건사고 제목·문서 URL 반환 |
+| `POST /namu-wiki/incidents/{year}/sync` | 해당 연도(2024·2025·2026) 분류를 나무위키에서 즉시 수집·upsert 후 반환 |
+
+일반 화면은 `GET`으로 DB 인덱스만 조회합니다. `POST .../sync`는 크롤링을 발생시키므로 운영 환경에서는 관리자 전용으로 제한해야 합니다.
 
 ## Meta 정책 카탈로그
 
