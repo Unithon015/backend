@@ -251,7 +251,8 @@ def _with_audience_context(
         additions.append(f"Priority review topics: {', '.join(review_context.focus_topics)}")
     if not additions:
         return system_prompt
-    return f"{system_prompt}\n\n{'\n\n'.join(additions)}"
+    additional_context = "\n\n".join(additions)
+    return f"{system_prompt}\n\n{additional_context}"
 
 
 def _build_user_content(text: str | None, images: list[tuple[bytes, str]]) -> list[dict]:
