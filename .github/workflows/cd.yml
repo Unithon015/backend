@@ -49,9 +49,9 @@ jobs:
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             GOOGLE_REDIRECT_URI=https://bbik.cloud/auth/google/callback
             JWT_SECRET=${{ secrets.JWT_SECRET }}
+            DOCKER_IMAGE=${{ secrets.DOCKER_USERNAME }}/baekend:latest
             EOF
             echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-            docker pull ${{ env.IMAGE }}
-            export DOCKER_IMAGE=${{ env.IMAGE }}
+            docker pull ${{ secrets.DOCKER_USERNAME }}/baekend:latest
             export $(cat /app/.env | xargs)
             docker compose -f /app/docker-compose.yml up -d
