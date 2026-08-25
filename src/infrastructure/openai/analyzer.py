@@ -34,10 +34,12 @@ MEDIUM: 검토 권장
 LOW: 참고 사항
 
 type 필드 규칙:
+- 각 finding은 반드시 하나의 소스에만 귀속됩니다.
 - 텍스트에서 발견: ["text"]
 - 이미지에서 발견: ["image"]
 - 영상에서 발견: ["video"]
-- 텍스트+이미지 조합에서 발견: ["text", "image"]"""
+- 텍스트와 이미지 모두에서 동일한 문제가 발견되면 각각 별도의 finding으로 분리하세요.
+- ["text", "image"] 처럼 두 소스를 하나의 finding에 묶지 마세요."""
 
 
 _GENERAL_SYSTEM_PROMPT = f"""{_COMMON_PROMPT}

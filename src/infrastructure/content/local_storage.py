@@ -24,6 +24,9 @@ class LocalContentStorage(ContentStorage):
         if destination.exists():
             await asyncio.to_thread(destination.unlink)
 
+    async def read_bytes(self, storage_key: str) -> bytes:
+        return await asyncio.to_thread(self._resolve(storage_key).read_bytes)
+
     def resolve_for_download(self, storage_key: str) -> Path:
         return self._resolve(storage_key)
 

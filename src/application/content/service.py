@@ -34,6 +34,12 @@ class ContentStorage:
     async def delete(self, storage_key: str) -> None:
         raise NotImplementedError
 
+    async def read_bytes(self, storage_key: str) -> bytes:
+        raise NotImplementedError
+
+    async def get_download_url(self, storage_key: str) -> str | None:
+        return None
+
 
 class ContentSubmissionService:
     _allowed_mime_types = {
