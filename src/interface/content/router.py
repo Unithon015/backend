@@ -113,7 +113,7 @@ async def get_analysis_status(
         findings=[
             ReviewFindingResponse(
                 id=finding.id,
-                type=finding.media_types,
+                type=finding.media_types[0] if finding.media_types else "text",
                 category_code=finding.category_code,
                 priority=finding.priority,
                 signal_type=finding.signal_type,
@@ -167,11 +167,20 @@ async def _get_submission(
 
 
 def _submission_response(submission: ContentSubmission) -> ContentSubmissionResponse:
+    content_types: list[str] = []
+    if submission.caption_text:
+        content_types.append("text")
+    for asset in submission.assets:
+        label = asset.content_type.value.lower()
+        if label not in content_types:
+            content_types.append(label)
+
     return ContentSubmissionResponse(
         id=submission.id,
         title=submission.title,
         caption_text=submission.caption_text,
         status=submission.status,
+        type=content_types,
         created_at=submission.created_at,
         assets=[
             ContentAssetResponse(

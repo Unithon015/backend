@@ -20,6 +20,7 @@ class ContentSubmissionResponse(BaseModel):
     title: str
     caption_text: str | None
     status: AnalysisStatus
+    type: list[str]
     assets: list[ContentAssetResponse]
     created_at: datetime
 
@@ -39,7 +40,7 @@ class FindingEvidenceResponse(BaseModel):
 
 class ReviewFindingResponse(BaseModel):
     id: UUID
-    type: list[str]
+    type: str
     category_code: str = Field(description="R-01 through R-08 review category")
     priority: ReviewPriority
     signal_type: str
