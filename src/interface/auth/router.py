@@ -22,4 +22,4 @@ def google_login():
 @router.get("/google/callback")
 async def google_callback(code: str, service: GoogleAuthService = Depends(_service)):
     token = await service.login(code)
-    return RedirectResponse(f"http://localhost:5173?token={token.access_token}")
+    return RedirectResponse(f"https://main.bbik.cloud/onboarding?token={token.access_token}")
