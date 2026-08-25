@@ -1,0 +1,1 @@
+"""Namu Wiki article domain."""

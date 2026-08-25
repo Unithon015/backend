@@ -10,6 +10,7 @@ services:
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       JWT_SECRET: ${JWT_SECRET}
       UPLOAD_DIRECTORY: ${UPLOAD_DIRECTORY:-/app/data/uploads}
+      NAMU_WIKI_2026_SYNC_ENABLED: ${NAMU_WIKI_2026_SYNC_ENABLED:-true}
     restart: unless-stopped
     volumes:
       - content_uploads:/app/data/uploads
