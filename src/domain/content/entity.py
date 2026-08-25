@@ -28,6 +28,12 @@ class EvidenceLayer(StrEnum):
     NOW = "NOW"
 
 
+class FindingStatus(StrEnum):
+    PENDING = "PENDING"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
 @dataclass(frozen=True)
 class StoredAsset:
     original_filename: str
@@ -61,6 +67,7 @@ class ReviewFinding:
     end_ms: int | None = None
     evidences: list[FindingEvidence] = field(default_factory=list)
     media_types: list[str] = field(default_factory=list)
+    status: FindingStatus = FindingStatus.PENDING
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

@@ -7,6 +7,7 @@ from src.domain.content.entity import (
     AnalysisRun,
     AssetType,
     ContentSubmission,
+    FindingStatus,
     StoredAsset,
 )
 from src.domain.content.repository import ContentSubmissionRepository
@@ -100,6 +101,24 @@ class ContentSubmissionService:
 
     async def list_recent(self, limit: int = 20) -> list[ContentSubmission]:
         return await self._repository.list_recent(min(max(limit, 1), 50))
+
+    async def list_by_owner(self, owner_id: UUID, limit: int = 20) -> list[ContentSubmission]:
+        return await self._repository.list_by_owner(owner_id, min(max(limit, 1), 50))
+
+    async def update_finding_status(
+        self, submission_id: UUID, finding_id: UUID, status: FindingStatus
+    ) -> None:
+        submission = await self._repository.find_by_id(submission_id)
+        if not submission:
+            raise ContentSubmissionNotFoundError
+        exists = any(
+            f.id == finding_id
+            for run in submission.analysis_runs
+            for f in run.findings
+        )
+        if not exists:
+            raise LookupError("Finding not found")
+        await self._repository.update_finding_status(finding_id, status)
 
     def _validate(self, *, files: list[UploadPayload], caption_text: str | None) -> None:
         if not files and not caption_text:

@@ -12,6 +12,7 @@ from src.domain.content.entity import (
     ContentSubmission,
     EvidenceLayer,
     FindingEvidence,
+    FindingStatus,
     ReviewFinding,
     ReviewPriority,
     StoredAsset,
@@ -73,6 +74,15 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
         )
         return [self._to_entity(model) for model in result.scalars().all()]
 
+    async def list_by_owner(self, owner_id: UUID, limit: int) -> list[ContentSubmission]:
+        result = await self._session.execute(
+            self._base_query()
+            .where(ContentSubmissionModel.owner_id == owner_id)
+            .order_by(ContentSubmissionModel.created_at.desc())
+            .limit(limit)
+        )
+        return [self._to_entity(model) for model in result.scalars().all()]
+
     async def update_analysis_run(self, analysis_run: AnalysisRun) -> AnalysisRun:
         result = await self._session.execute(
             select(AnalysisRunModel)
@@ -118,6 +128,25 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
         for finding in analysis_run.findings:
             self._add_finding(analysis_run.id, finding)
 
+    async def update_title(self, submission_id: UUID, title: str) -> None:
+        result = await self._session.execute(
+            select(ContentSubmissionModel).where(ContentSubmissionModel.id == submission_id)
+        )
+        model = result.scalar_one_or_none()
+        if model:
+            model.title = title[:120]
+            await self._session.commit()
+
+    async def update_finding_status(self, finding_id: UUID, status: FindingStatus) -> None:
+        result = await self._session.execute(
+            select(ReviewFindingModel).where(ReviewFindingModel.id == finding_id)
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            raise LookupError("Finding not found")
+        model.status = status.value
+        await self._session.commit()
+
     def _add_finding(self, analysis_run_id: UUID, finding: ReviewFinding) -> None:
         self._session.add(
             ReviewFindingModel(
@@ -126,6 +155,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                 asset_id=finding.asset_id,
                 category_code=finding.category_code,
                 priority=finding.priority.value,
+                status=finding.status.value,
                 signal_type=finding.signal_type,
                 excerpt=finding.excerpt,
                 reason=finding.reason,
@@ -190,6 +220,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                         id=finding.id,
                         category_code=finding.category_code,
                         priority=ReviewPriority(finding.priority),
+                        status=FindingStatus(finding.status),
                         signal_type=finding.signal_type,
                         reason=finding.reason,
                         excerpt=finding.excerpt,

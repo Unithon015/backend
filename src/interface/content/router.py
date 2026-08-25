@@ -11,6 +11,9 @@ from src.application.content.dto import (
     ContentAssetResponse,
     ContentSubmissionResponse,
     FindingEvidenceResponse,
+    FindingStatusUpdateRequest,
+    MySubmissionItemResponse,
+    MySubmissionListResponse,
     RecentContentResponse,
     ReviewFindingResponse,
 )
@@ -21,11 +24,13 @@ from src.application.content.service import (
     ContentStorage,
     UploadPayload,
 )
+from src.domain.content.entity import FindingStatus
 from src.application.content.analysis_worker import run_analysis
 from src.database import get_db
 from src.domain.content.entity import ContentSubmission
 from src.infrastructure.content.s3_storage import S3ContentStorage
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
+from src.interface.deps import get_current_user_id
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
@@ -49,6 +54,7 @@ async def create_content(
     file: Annotated[UploadFile | None, File(description="이미지 파일 (선택)")] = None,
     text: Annotated[str | None, Form()] = None,
     service: ContentSubmissionService = Depends(_service),
+    owner_id: UUID = Depends(get_current_user_id),
 ):
     payloads = []
     if file and file.filename:
@@ -58,7 +64,7 @@ async def create_content(
             content=await file.read(),
         ))
     try:
-        submission = await service.create(title=None, caption_text=text, files=payloads)
+        submission = await service.create(title=None, caption_text=text, files=payloads, owner_id=owner_id)
     except ContentSubmissionValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -72,6 +78,31 @@ async def create_content(
         )
 
     return _submission_response(submission)
+
+
+@router.get("/me", response_model=MySubmissionListResponse)
+async def list_my_contents(
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    service: ContentSubmissionService = Depends(_service),
+    owner_id: UUID = Depends(get_current_user_id),
+):
+    submissions = await service.list_by_owner(owner_id, limit)
+    items = []
+    for submission in submissions:
+        run = submission.latest_analysis
+        pending_count = sum(
+            1 for f in run.findings
+            if f.status == FindingStatus.PENDING
+        )
+        items.append(MySubmissionItemResponse(
+            id=submission.id,
+            title=submission.title,
+            status=submission.status,
+            pending_findings_count=pending_count,
+            completed_at=run.completed_at,
+            created_at=submission.created_at,
+        ))
+    return MySubmissionListResponse(items=items)
 
 
 @router.get("", response_model=RecentContentResponse)
@@ -122,6 +153,7 @@ async def get_analysis_status(
                 type=finding.media_types[0] if finding.media_types else "text",
                 category_code=finding.category_code,
                 priority=finding.priority,
+                status=finding.status,
                 signal_type=finding.signal_type,
                 reason=finding.reason,
                 excerpt=finding.excerpt,
@@ -141,8 +173,26 @@ async def get_analysis_status(
                 ],
             )
             for finding in run.findings
+            if finding.status != FindingStatus.DISMISSED
         ],
     )
+
+
+@router.patch("/{submission_id}/findings/{finding_id}", status_code=204)
+async def update_finding_status(
+    submission_id: UUID,
+    finding_id: UUID,
+    body: FindingStatusUpdateRequest,
+    service: ContentSubmissionService = Depends(_service),
+    owner_id: UUID = Depends(get_current_user_id),
+):
+    submission = await _get_submission(service, submission_id)
+    if submission.owner_id != owner_id:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    try:
+        await service.update_finding_status(submission_id, finding_id, body.status)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Finding not found")
 
 
 @router.get("/{submission_id}/assets/{asset_id}")

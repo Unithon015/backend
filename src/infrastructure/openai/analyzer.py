@@ -52,6 +52,7 @@ _GENERAL_SYSTEM_PROMPT = f"""{_COMMON_PROMPT}
 
 다음 JSON 형식으로만 응답하세요:
 {{
+  "title": "콘텐츠를 한 줄로 표현한 제목 (20자 이내)",
   "findings": [
     {{
       "type": ["text"],
@@ -75,6 +76,7 @@ class GeneralAnalysisResult:
     findings: list[ReviewFinding]
     search_summary: str
     search_terms: tuple[str, ...]
+    title: str | None
 
     def retrieval_query(self, original_text: str | None) -> str:
         parts = [original_text or "", self.search_summary, *self.search_terms]
@@ -98,10 +100,12 @@ async def analyze_general(
         str(term).strip() for term in search_context.get("terms", [])[:20]
         if str(term).strip()
     )
+    raw_title = str(raw.get("title") or "").strip()[:40] or None
     return GeneralAnalysisResult(
         findings=[replace(finding, evidences=[]) for finding in _parse(raw.get("findings", []))],
         search_summary=str(search_context.get("summary", "")).strip(),
         search_terms=terms,
+        title=raw_title,
     )
 
 

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from src.domain.content.entity import AnalysisStatus, AssetType, EvidenceLayer, ReviewPriority
+from src.domain.content.entity import AnalysisStatus, AssetType, EvidenceLayer, FindingStatus, ReviewPriority
 
 
 class ContentAssetResponse(BaseModel):
@@ -43,6 +43,7 @@ class ReviewFindingResponse(BaseModel):
     type: str
     category_code: str = Field(description="R-01 through R-08 review category")
     priority: ReviewPriority
+    status: FindingStatus
     signal_type: str
     reason: str
     excerpt: str | None
@@ -50,6 +51,23 @@ class ReviewFindingResponse(BaseModel):
     start_ms: int | None
     end_ms: int | None
     evidences: list[FindingEvidenceResponse]
+
+
+class FindingStatusUpdateRequest(BaseModel):
+    status: FindingStatus
+
+
+class MySubmissionItemResponse(BaseModel):
+    id: UUID
+    title: str
+    status: AnalysisStatus
+    pending_findings_count: int
+    completed_at: datetime | None
+    created_at: datetime
+
+
+class MySubmissionListResponse(BaseModel):
+    items: list[MySubmissionItemResponse]
 
 
 class AnalysisStatusResponse(BaseModel):

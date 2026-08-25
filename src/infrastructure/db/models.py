@@ -96,6 +96,7 @@ class ReviewFindingModel(Base):
     )
     category_code: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     priority: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
     signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
     excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)

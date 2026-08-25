@@ -30,6 +30,8 @@ async def run_analysis(
                 images=images if images else None,
                 api_key=api_key,
             )
+            if general_result.title:
+                await repo.update_title(submission_id, general_result.title)
             if general_result.findings:
                 await service.complete(submission_id, findings=general_result.findings)
                 return
