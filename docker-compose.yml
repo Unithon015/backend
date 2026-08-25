@@ -1,6 +1,8 @@
 services:
   baekend:
-    image: ${DOCKER_IMAGE}
+    image: ${DOCKER_IMAGE:-bbik-baekend:local}
+    build:
+      context: .
     ports:
       - "8000:8000"
     environment:
