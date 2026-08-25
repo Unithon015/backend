@@ -55,7 +55,7 @@ class ContentRouterTest(unittest.TestCase):
         response = self.client.post(
             "/contents",
             data={"text": "신제품 게시 전 문구입니다."},
-            files={"files": ("poster.png", b"image-bytes", "image/png")},
+            files={"file": ("poster.png", b"image-bytes", "image/png")},
         )
 
         self.assertEqual(response.status_code, 201, response.text)
