@@ -122,6 +122,7 @@ class HttpNamuWikiArticleGateway(NamuWikiArticleGateway):
         except httpx.HTTPError as exc:
             raise NamuWikiUnavailable("Unable to retrieve the Namu Wiki article.") from exc
 
-        encoding = response.encoding or "utf-8"
-        html = bytes(payload).decode(encoding, errors="replace")
+        # See the yearly incident crawler: do not accept the HTTP client's
+        # ISO-8859-1 fallback for Namu Wiki pages without a charset header.
+        html = bytes(payload).decode("utf-8", errors="replace")
         return self._parser.parse(article_url, html)

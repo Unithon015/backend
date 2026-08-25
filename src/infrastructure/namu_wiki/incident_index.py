@@ -134,7 +134,10 @@ class HttpNamuWikiIncidentCategoryGateway:
         except httpx.HTTPError as exc:
             raise NamuWikiUnavailable("Unable to retrieve the Namu Wiki category page.") from exc
 
-        return bytes(payload).decode(response.encoding or "utf-8", errors="replace")
+        # Namu Wiki serves UTF-8 content, but HTTP clients can fall back to
+        # ISO-8859-1 when a response omits its charset. Decoding explicitly
+        # prevents Korean titles from being persisted as mojibake.
+        return bytes(payload).decode("utf-8", errors="replace")
 
     async def fetch_years(self, years: list[int], request_interval_seconds: float = 1.0) -> dict[int, list[IncidentIndexEntry]]:
         results: dict[int, list[IncidentIndexEntry]] = {}
