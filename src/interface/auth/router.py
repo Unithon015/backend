@@ -19,6 +19,7 @@ def google_login():
     return RedirectResponse(get_login_url())
 
 
-@router.get("/google/callback", response_model=TokenResponse)
+@router.get("/google/callback")
 async def google_callback(code: str, service: GoogleAuthService = Depends(_service)):
-    return await service.login(code)
+    token = await service.login(code)
+    return RedirectResponse(f"http://localhost:5173?token={token.access_token}")
