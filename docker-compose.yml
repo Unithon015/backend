@@ -9,4 +9,10 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       JWT_SECRET: ${JWT_SECRET}
+      UPLOAD_DIRECTORY: ${UPLOAD_DIRECTORY:-/app/data/uploads}
     restart: unless-stopped
+    volumes:
+      - content_uploads:/app/data/uploads
+
+volumes:
+  content_uploads:
