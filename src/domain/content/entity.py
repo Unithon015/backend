@@ -60,6 +60,7 @@ class ReviewFinding:
     start_ms: int | None = None
     end_ms: int | None = None
     evidences: list[FindingEvidence] = field(default_factory=list)
+    media_types: list[str] = field(default_factory=list)
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

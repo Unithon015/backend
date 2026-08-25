@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from src.application.content.service import (
     ContentSubmissionValidationError,
     UploadPayload,
 )
+from src.application.content.analysis_worker import run_analysis
 from src.database import get_db
 from src.domain.content.entity import ContentSubmission
 from src.infrastructure.content.local_storage import LocalContentStorage
@@ -38,23 +39,32 @@ def _service(db: AsyncSession = Depends(get_db)) -> ContentSubmissionService:
 
 @router.post("", response_model=ContentSubmissionResponse, status_code=201)
 async def create_content(
-    files: Annotated[list[UploadFile], File()] = [],
+    background_tasks: BackgroundTasks,
+    file: Annotated[UploadFile | None, File(description="이미지 파일 (선택)")] = None,
     text: Annotated[str | None, Form()] = None,
-    title: Annotated[str | None, Form()] = None,
     service: ContentSubmissionService = Depends(_service),
 ):
-    payloads = [
-        UploadPayload(
-            filename=file.filename or "unnamed",
+    payloads = []
+    if file and file.filename:
+        payloads.append(UploadPayload(
+            filename=file.filename,
             mime_type=file.content_type or "application/octet-stream",
             content=await file.read(),
-        )
-        for file in files
-    ]
+        ))
     try:
-        submission = await service.create(title=title, caption_text=text, files=payloads)
+        submission = await service.create(title=None, caption_text=text, files=payloads)
     except ContentSubmissionValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    has_content = submission.caption_text or submission.assets
+    if has_content and config.OPEN_API_KEY:
+        background_tasks.add_task(
+            run_analysis,
+            submission.id,
+            api_key=config.OPEN_API_KEY,
+            upload_directory=config.UPLOAD_DIRECTORY,
+        )
+
     return _submission_response(submission)
 
 
@@ -82,8 +92,18 @@ async def get_analysis_status(
 ):
     submission = await _get_submission(service, submission_id)
     run = submission.latest_analysis
+
+    content_types: list[str] = []
+    if submission.caption_text:
+        content_types.append("text")
+    for asset in submission.assets:
+        label = asset.content_type.value.lower()  # "image" or "video"
+        if label not in content_types:
+            content_types.append(label)
+
     return AnalysisStatusResponse(
         id=run.id,
+        type=content_types,
         status=run.status,
         current_step=run.current_step,
         progress_percent=run.progress_percent,
@@ -93,6 +113,7 @@ async def get_analysis_status(
         findings=[
             ReviewFindingResponse(
                 id=finding.id,
+                type=finding.media_types,
                 category_code=finding.category_code,
                 priority=finding.priority,
                 signal_type=finding.signal_type,

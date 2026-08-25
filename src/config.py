@@ -11,6 +11,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 24  # 24시간
 UPLOAD_DIRECTORY = os.getenv("UPLOAD_DIRECTORY", "/tmp/bbibik-uploads")
+OPEN_API_KEY = os.getenv("OPEN_API_KEY", "")
 MAX_UPLOAD_FILE_BYTES = 30 * 1024 * 1024
 MAX_UPLOAD_TOTAL_BYTES = 50 * 1024 * 1024
 MAX_UPLOAD_FILES = 5
