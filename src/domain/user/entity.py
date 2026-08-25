@@ -6,4 +6,6 @@ from uuid import UUID, uuid4
 class User:
     email: str
     name: str
+    provider: str
+    provider_id: str
     id: UUID = field(default_factory=uuid4)

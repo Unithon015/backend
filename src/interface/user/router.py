@@ -1,28 +1,31 @@
 from uuid import UUID
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.application.user.dto import CreateUserRequest, UserResponse
 from src.application.user.service import UserService
-from src.infrastructure.user.repository import InMemoryUserRepository
+from src.database import get_db
+from src.infrastructure.user.pg_repository import PostgresUserRepository
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-# ponytail: global singleton repo, swap with DI container when adding real DB
-_service = UserService(InMemoryUserRepository())
+
+def _service(db: AsyncSession = Depends(get_db)) -> UserService:
+    return UserService(PostgresUserRepository(db))
 
 
 @router.post("", response_model=UserResponse, status_code=201)
-def create_user(req: CreateUserRequest):
-    return _service.create(req)
+async def create_user(req: CreateUserRequest, service: UserService = Depends(_service)):
+    return await service.create(req)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-def get_user(user_id: UUID):
-    user = _service.get(user_id)
+async def get_user(user_id: UUID, service: UserService = Depends(_service)):
+    user = await service.get(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
 @router.get("", response_model=list[UserResponse])
-def list_users():
-    return _service.list_all()
+async def list_users(service: UserService = Depends(_service)):
+    return await service.list_all()
