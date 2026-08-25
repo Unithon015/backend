@@ -1,7 +1,7 @@
-from pathlib import Path
 from uuid import UUID
 
 from src.application.content.analysis_service import ContentAnalysisService
+from src.application.content.service import ContentStorage
 from src.domain.content.entity import AssetType
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 from src.infrastructure.openai.analyzer import analyze
@@ -11,7 +11,7 @@ async def run_analysis(
     submission_id: UUID,
     *,
     api_key: str,
-    upload_directory: str,
+    storage: ContentStorage,
 ) -> None:
     from src.database import AsyncSessionLocal
 
@@ -23,7 +23,7 @@ async def run_analysis(
             submission = await repo.find_by_id(submission_id)
             assert submission
 
-            images = _read_images(submission.assets, upload_directory)
+            images = await _read_images(submission.assets, storage)
             findings = await analyze(
                 text=submission.caption_text or None,
                 images=images if images else None,
@@ -34,13 +34,14 @@ async def run_analysis(
             await service.fail(submission_id, message=str(exc))
 
 
-def _read_images(assets, upload_directory: str) -> list[tuple[bytes, str]]:
-    base = Path(upload_directory).resolve()
+async def _read_images(assets, storage: ContentStorage) -> list[tuple[bytes, str]]:
     result = []
     for asset in assets:
         if asset.content_type != AssetType.IMAGE:
             continue
-        path = (base / asset.storage_key).resolve()
-        if path.exists():
-            result.append((path.read_bytes(), asset.mime_type))
+        try:
+            data = await storage.read_bytes(asset.storage_key)
+            result.append((data, asset.mime_type))
+        except Exception:
+            pass
     return result

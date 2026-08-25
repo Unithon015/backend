@@ -1,8 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import config
@@ -18,19 +18,25 @@ from src.application.content.service import (
     ContentSubmissionNotFoundError,
     ContentSubmissionService,
     ContentSubmissionValidationError,
+    ContentStorage,
     UploadPayload,
 )
 from src.application.content.analysis_worker import run_analysis
 from src.database import get_db
 from src.domain.content.entity import ContentSubmission
-from src.infrastructure.content.local_storage import LocalContentStorage
+from src.infrastructure.content.s3_storage import S3ContentStorage
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
 
-def _storage() -> LocalContentStorage:
-    return LocalContentStorage(config.UPLOAD_DIRECTORY)
+def _storage() -> ContentStorage:
+    return S3ContentStorage(
+        bucket=config.S3_BUCKET_NAME,
+        region=config.AWS_REGION,
+        access_key=config.AWS_ACCESS_KEY_ID,
+        secret_key=config.AWS_SECRET_ACCESS_KEY,
+    )
 
 
 def _service(db: AsyncSession = Depends(get_db)) -> ContentSubmissionService:
@@ -62,7 +68,7 @@ async def create_content(
             run_analysis,
             submission.id,
             api_key=config.OPEN_API_KEY,
-            upload_directory=config.UPLOAD_DIRECTORY,
+            storage=_storage(),
         )
 
     return _submission_response(submission)
@@ -144,17 +150,17 @@ async def download_asset(
     submission_id: UUID,
     asset_id: UUID,
     service: ContentSubmissionService = Depends(_service),
-    storage: LocalContentStorage = Depends(_storage),
+    storage: ContentStorage = Depends(_storage),
 ):
     submission = await _get_submission(service, submission_id)
     asset = next((asset for asset in submission.assets if asset.id == asset_id), None)
     if not asset:
         raise HTTPException(status_code=404, detail="Content asset not found")
 
-    path = storage.resolve_for_download(asset.storage_key)
-    if not path.exists():
+    url = await storage.get_download_url(asset.storage_key)
+    if not url:
         raise HTTPException(status_code=410, detail="The original content is no longer available")
-    return FileResponse(path, media_type=asset.mime_type, filename=asset.original_filename)
+    return RedirectResponse(url)
 
 
 async def _get_submission(
