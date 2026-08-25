@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -79,6 +79,11 @@ class PolicyCatalogEntryModel(Base):
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     review_category: Mapped[str] = mapped_column(String(100), nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    policy_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    detection_hints: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    match_keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    applicable_media_types: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

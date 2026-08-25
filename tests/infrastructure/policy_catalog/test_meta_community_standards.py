@@ -8,3 +8,7 @@ class TestMetaCommunityStandards(unittest.TestCase):
         self.assertEqual(len(META_COMMUNITY_STANDARDS), 27)
         self.assertEqual(len({entry.policy_code for entry in META_COMMUNITY_STANDARDS}), 27)
         self.assertTrue(all(entry.source_url.startswith("https://") for entry in META_COMMUNITY_STANDARDS))
+        self.assertTrue(all(entry.policy_summary for entry in META_COMMUNITY_STANDARDS))
+        self.assertTrue(all(entry.detection_hints for entry in META_COMMUNITY_STANDARDS))
+        self.assertTrue(all(entry.match_keywords for entry in META_COMMUNITY_STANDARDS if entry.is_active))
+        self.assertFalse(next(entry for entry in META_COMMUNITY_STANDARDS if entry.policy_code == "META_USER_REQUESTS").is_active)

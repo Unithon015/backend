@@ -1,18 +1,22 @@
 import base64
+from dataclasses import dataclass, replace
 import json
 
 from openai import AsyncOpenAI
 
 from src.domain.content.entity import EvidenceLayer, FindingEvidence, ReviewFinding, ReviewPriority
+from src.infrastructure.policy_catalog.context import IncidentPromptContext, PolicyPromptContext
 
-_SYSTEM_PROMPT = """당신은 한국 콘텐츠 크리에이터를 위한 콘텐츠 사전 검수 보조 AI입니다.
+
+_COMMON_PROMPT = """당신은 한국 콘텐츠 크리에이터를 위한 콘텐츠 사전 검수 보조 AI입니다.
 
 입력된 텍스트, 이미지, 또는 둘 다를 분석하여 사람이 검토해야 할 항목만 추출하세요.
 
 중요 원칙:
-- 게시 가능/불가를 판단하지 마세요.
-- 숫자 위험 점수(예: 82%)를 부여하지 마세요.
-- 실제로 검토가 필요한 항목만 후보화하세요. 문제가 없으면 findings를 빈 배열로 반환하세요.
+- 게시 가능/불가, 정책 위반, 불법 여부를 단정하지 마세요.
+- 숫자 위험 점수를 부여하지 마세요.
+- 인용·보도·비판·교육 맥락을 고려하세요.
+- 실제 검토가 필요한 항목만 후보화하고, 문제가 없으면 findings를 빈 배열로 반환하세요.
 
 Risk 분류 (category_code):
 R-01: 정치·선거 맥락
@@ -29,28 +33,6 @@ HIGH: 즉각 검토 필요
 MEDIUM: 검토 권장
 LOW: 참고 사항
 
-다음 JSON 형식으로만 응답하세요:
-{
-  "findings": [
-    {
-      "type": ["text"],
-      "category_code": "R-03",
-      "priority": "HIGH",
-      "signal_type": "혐오 표현",
-      "reason": "검토가 필요한 이유를 1-2문장으로 설명",
-      "excerpt": "문제가 되는 텍스트 원문 인용 (이미지면 묘사)",
-      "evidences": [
-        {
-          "layer": "RULE",
-          "title": "관련 정책 또는 근거 명칭",
-          "source_url": "https://...",
-          "excerpt": "정책 핵심 내용 요약"
-        }
-      ]
-    }
-  ]
-}
-
 type 필드 규칙:
 - 각 finding은 반드시 하나의 소스에만 귀속됩니다.
 - 텍스트에서 발견: ["text"]
@@ -60,33 +42,173 @@ type 필드 규칙:
 - ["text", "image"] 처럼 두 소스를 하나의 finding에 묶지 마세요."""
 
 
-async def analyze(
+_GENERAL_SYSTEM_PROMPT = f"""{_COMMON_PROMPT}
+
+이 단계는 외부 정책·사건 DB를 사용하지 않는 일반 검수입니다.
+일반 검수 후보에는 확인되지 않은 정책 URL을 만들지 말고 evidences를 빈 배열로 두세요.
+
+검색 보조 정보도 함께 반환하세요. search_context는 findings가 있든 없든 작성하며,
+이미지 OCR 문구, 고유명사, 사건명, 인물·단체명, 민감 주제어를 중심으로 구성하세요.
+
+다음 JSON 형식으로만 응답하세요:
+{{
+  "findings": [
+    {{
+      "type": ["text"],
+      "category_code": "R-03",
+      "priority": "HIGH",
+      "signal_type": "혐오 표현",
+      "reason": "검토가 필요한 이유를 1-2문장으로 설명",
+      "excerpt": "문제가 되는 원문 인용 또는 이미지 묘사",
+      "evidences": []
+    }}
+  ],
+  "search_context": {{
+    "summary": "콘텐츠의 사실적 내용과 맥락을 최대 2문장으로 요약",
+    "terms": ["고유명사", "사건명", "OCR 문구", "민감 주제어"]
+  }}
+}}"""
+
+
+@dataclass(frozen=True)
+class GeneralAnalysisResult:
+    findings: list[ReviewFinding]
+    search_summary: str
+    search_terms: tuple[str, ...]
+
+    def retrieval_query(self, original_text: str | None) -> str:
+        parts = [original_text or "", self.search_summary, *self.search_terms]
+        return "\n".join(part for part in parts if part).strip()
+
+
+async def analyze_general(
     *,
     text: str | None = None,
-    images: list[tuple[bytes, str]] | None = None,  # (content, mime_type)
+    images: list[tuple[bytes, str]] | None = None,
     api_key: str,
+) -> GeneralAnalysisResult:
+    raw = await _request_json(
+        text=text,
+        images=images or [],
+        api_key=api_key,
+        system_prompt=_GENERAL_SYSTEM_PROMPT,
+    )
+    search_context = raw.get("search_context") or {}
+    terms = tuple(
+        str(term).strip() for term in search_context.get("terms", [])[:20]
+        if str(term).strip()
+    )
+    return GeneralAnalysisResult(
+        findings=[replace(finding, evidences=[]) for finding in _parse(raw.get("findings", []))],
+        search_summary=str(search_context.get("summary", "")).strip(),
+        search_terms=terms,
+    )
+
+
+async def analyze_references(
+    *,
+    text: str | None = None,
+    images: list[tuple[bytes, str]] | None = None,
+    api_key: str,
+    policy_context: list[PolicyPromptContext],
+    incident_context: list[IncidentPromptContext],
 ) -> list[ReviewFinding]:
+    if not policy_context and not incident_context:
+        return []
+    raw = await _request_json(
+        text=text,
+        images=images or [],
+        api_key=api_key,
+        system_prompt=_build_reference_system_prompt(policy_context, incident_context),
+    )
+    return _validate_reference_findings(
+        _parse(raw.get("findings", [])),
+        policy_context,
+        incident_context,
+    )
+
+
+async def _request_json(
+    *,
+    text: str | None,
+    images: list[tuple[bytes, str]],
+    api_key: str,
+    system_prompt: str,
+) -> dict:
     client = AsyncOpenAI(api_key=api_key)
-    user_content: list[dict] = _build_user_content(text, images or [])
     response = await client.chat.completions.create(
         model="gpt-4o",
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": _build_user_content(text, images)},
         ],
         temperature=0.1,
     )
     content = response.choices[0].message.content
-    if not content:
-        return []
-    raw = json.loads(content)
-    return _parse(raw.get("findings", []))
+    return json.loads(content) if content else {}
+
+
+def _build_reference_system_prompt(
+    policy_context: list[PolicyPromptContext],
+    incident_context: list[IncidentPromptContext],
+) -> str:
+    rows: list[str] = []
+    for policy in policy_context:
+        media_types = ", ".join(policy.applicable_media_types)
+        hints = " / ".join(policy.detection_hints)
+        rows.append(
+            f'- RULE | META_COMMUNITY_STANDARDS | "{policy.title}" | {policy.source_url}\n'
+            f"  분류: {policy.review_category}; 적용: {media_types}\n"
+            f"  요약: {policy.policy_summary}\n"
+            f"  검수 신호: {hints}"
+        )
+    for incident in incident_context:
+        categories = ", ".join(incident.risk_categories) or "미분류"
+        rows.append(
+            f'- MEMORY | {incident.source_type} | "{incident.title}" | {incident.source_url}\n'
+            f"  연도: {incident.year}; 위험 분류: {categories}"
+        )
+
+    return f"""{_COMMON_PROMPT}
+
+이 단계는 1차 일반 검수에서 후보가 없었을 때만 실행하는 DB 근거 대조 검수입니다.
+아래 제공된 후보와 콘텐츠가 직접 관련되는지 다시 판단하세요.
+- 제목이나 키워드가 우연히 같다는 이유만으로 후보화하지 마세요.
+- 문맥상 실제 검토 필요성이 있을 때만 findings를 반환하세요.
+- evidences에는 아래 행 중 직접 관련된 근거만 최대 3개 넣으세요.
+- layer, title, source_url, provider는 아래 값을 그대로 복사하세요.
+- 제공되지 않은 정책, 사건, URL을 새로 만들지 마세요.
+
+DB 후보:
+{chr(10).join(rows)}
+
+다음 JSON 형식으로만 응답하세요:
+{{
+  "findings": [
+    {{
+      "type": ["text"],
+      "category_code": "R-06",
+      "priority": "MEDIUM",
+      "signal_type": "과거 사건 관련 표현",
+      "reason": "DB 근거와 대조해 검토가 필요한 이유",
+      "excerpt": "문제가 되는 원문 인용 또는 이미지 묘사",
+      "evidences": [
+        {{
+          "layer": "RULE",
+          "title": "위 후보에 적힌 정확한 제목",
+          "source_url": "위 후보에 적힌 정확한 URL",
+          "provider": "META_COMMUNITY_STANDARDS",
+          "excerpt": "관련 근거 요약"
+        }}
+      ]
+    }}
+  ]
+}}"""
 
 
 def _build_user_content(text: str | None, images: list[tuple[bytes, str]]) -> list[dict]:
     parts: list[dict] = []
-
     if text and images:
         parts.append({"type": "text", "text": f"다음 텍스트와 이미지를 함께 검수해주세요.\n\n텍스트:\n{text[:8000]}"})
     elif text:
@@ -94,14 +216,38 @@ def _build_user_content(text: str | None, images: list[tuple[bytes, str]]) -> li
     elif images:
         parts.append({"type": "text", "text": "다음 이미지를 검수해주세요:"})
 
-    for content, mime_type in images[:4]:  # GPT-4o 최대 이미지 수 제한
+    for content, mime_type in images[:4]:
         b64 = base64.b64encode(content).decode()
         parts.append({
             "type": "image_url",
             "image_url": {"url": f"data:{mime_type};base64,{b64}", "detail": "high"},
         })
-
     return parts
+
+
+def _validate_reference_findings(
+    findings: list[ReviewFinding],
+    policy_context: list[PolicyPromptContext],
+    incident_context: list[IncidentPromptContext],
+) -> list[ReviewFinding]:
+    allowed = {
+        (EvidenceLayer.RULE, policy.title, policy.source_url, "META_COMMUNITY_STANDARDS")
+        for policy in policy_context
+    }
+    allowed.update(
+        (EvidenceLayer.MEMORY, incident.title, incident.source_url, incident.source_type)
+        for incident in incident_context
+    )
+
+    validated = []
+    for finding in findings:
+        evidences = [
+            evidence for evidence in finding.evidences
+            if (evidence.layer, evidence.title, evidence.source_url, evidence.provider) in allowed
+        ][:3]
+        if evidences:
+            validated.append(replace(finding, evidences=evidences))
+    return validated
 
 
 def _parse(items: list[dict]) -> list[ReviewFinding]:
@@ -123,6 +269,7 @@ def _parse(items: list[dict]) -> list[ReviewFinding]:
                 title=ev.get("title", ""),
                 source_url=ev.get("source_url", ""),
                 excerpt=ev.get("excerpt"),
+                provider=ev.get("provider"),
             ))
 
         findings.append(ReviewFinding(

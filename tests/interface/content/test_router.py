@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -51,11 +52,11 @@ class ContentRouterTest(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def test_upload_returns_queued_submission_and_asset_can_be_read(self):
+    def test_upload_returns_queued_submission_and_asset_download_redirect(self):
         response = self.client.post(
             "/contents",
             data={"text": "신제품 게시 전 문구입니다."},
-            files={"files": ("poster.png", b"image-bytes", "image/png")},
+            files={"file": ("poster.png", b"image-bytes", "image/png")},
         )
 
         self.assertEqual(response.status_code, 201, response.text)
@@ -67,6 +68,12 @@ class ContentRouterTest(unittest.TestCase):
         self.assertEqual(analysis.status_code, 200)
         self.assertEqual(analysis.json()["findings"], [])
 
-        asset = self.client.get(created["assets"][0]["download_url"])
-        self.assertEqual(asset.status_code, 200)
-        self.assertEqual(asset.content, b"image-bytes")
+        self.storage.get_download_url = AsyncMock(
+            return_value="https://storage.example/poster.png"
+        )
+        asset = self.client.get(
+            created["assets"][0]["download_url"],
+            follow_redirects=False,
+        )
+        self.assertEqual(asset.status_code, 307)
+        self.assertEqual(asset.headers["location"], "https://storage.example/poster.png")

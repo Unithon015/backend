@@ -17,6 +17,10 @@ from src.infrastructure.db import models  # noqa: F401 - registers application m
 from src.infrastructure.db.base import Base as ApplicationBase
 from src.infrastructure.persistence.models import Base as IncidentIndexBase
 from src.infrastructure.persistence.incident_index_migrations import upgrade_incident_index_schema
+from src.infrastructure.persistence.policy_catalog_migrations import upgrade_policy_catalog_schema
+from src.infrastructure.persistence.policy_catalog_repository import SqlAlchemyPolicyCatalogRepository
+from src.infrastructure.persistence.database import build_session_factory
+from src.infrastructure.policy_catalog.meta_community_standards import META_COMMUNITY_STANDARDS
 from src.interface.namu_wiki.router import router as namu_wiki_router
 from src.interface.user.router import router as user_router
 
@@ -28,6 +32,14 @@ async def lifespan(_: FastAPI):
         await connection.run_sync(ApplicationBase.metadata.create_all)
         await connection.run_sync(IncidentIndexBase.metadata.create_all)
         await connection.run_sync(upgrade_incident_index_schema)
+        await connection.run_sync(upgrade_policy_catalog_schema)
+
+    policy_session_factory = build_session_factory()
+    with policy_session_factory() as session:
+        SqlAlchemyPolicyCatalogRepository().upsert_many(
+            session, provider="META_COMMUNITY_STANDARDS", entries=META_COMMUNITY_STANDARDS
+        )
+        session.commit()
 
     if should_start_initial_sync():
         try:
