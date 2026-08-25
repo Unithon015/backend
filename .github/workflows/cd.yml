@@ -43,7 +43,14 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             export PATH=$PATH:/usr/local/bin
+            cat > /app/.env << 'EOF'
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            GOOGLE_REDIRECT_URI=https://bbik.cloud/auth/google/callback
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            EOF
             echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
             docker pull ${{ env.IMAGE }}
             export DOCKER_IMAGE=${{ env.IMAGE }}
+            export $(cat /app/.env | xargs)
             docker compose -f /app/docker-compose.yml up -d
