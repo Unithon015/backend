@@ -44,6 +44,7 @@ jobs:
           script: |
             export PATH=$PATH:/usr/local/bin
             cat > /app/.env << 'EOF'
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
             GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             GOOGLE_REDIRECT_URI=https://bbik.cloud/auth/google/callback
