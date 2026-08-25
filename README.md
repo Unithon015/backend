@@ -45,6 +45,7 @@ python scripts/seed_meta_policy_catalog.py
 서버에 `DATABASE_URL`이 있으면 2026년 동기화 스케줄러가 자정에 실행됩니다. 다중 인스턴스
 배포라면 한 인스턴스만 `NAMU_WIKI_2026_SYNC_ENABLED=true`로 두거나, AWS EventBridge에서
 동일 스크립트를 하루 한 번 실행해야 합니다. 개발 환경에서는 `false`로 비활성화할 수 있습니다.
+RDS가 사설 서브넷이라면 초기 적재 명령도 EC2 또는 같은 VPC 내부에서 실행해야 합니다.
 
 ## Meta 정책 카탈로그
 
