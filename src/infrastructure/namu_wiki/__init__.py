@@ -1,0 +1,1 @@
+"""External Namu Wiki integrations."""

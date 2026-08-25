@@ -29,3 +29,24 @@ curl -X POST http://localhost:8000/contents \
 
 로컬/단일 EC2 MVP에서는 `UPLOAD_DIRECTORY`에 원본을 저장합니다. 다중 인스턴스나
 운영 배포 전에는 같은 `ContentStorage` 포트에 S3 어댑터를 연결해야 합니다.
+
+## 나무위키 사건 인덱스
+
+나무위키의 2024·2025년 사건사고 분류를 초기 적재하고, 2026년 분류는 매일 자정
+`Asia/Seoul`에 동기화합니다. 수집하는 데이터는 분류 페이지의 사건 제목과 문서 URL뿐이며,
+사용자에게 보여 줄 최종 근거는 뉴스·공식 출처를 별도로 연결해야 합니다.
+
+```powershell
+$env:DATABASE_URL = "postgresql+asyncpg://..."
+python scripts/sync_namu_wiki_incidents.py --years 2024 2025 2026
+python scripts/seed_meta_policy_catalog.py
+```
+
+서버에 `DATABASE_URL`이 있으면 2026년 동기화 스케줄러가 자정에 실행됩니다. 다중 인스턴스
+배포라면 한 인스턴스만 `NAMU_WIKI_2026_SYNC_ENABLED=true`로 두거나, AWS EventBridge에서
+동일 스크립트를 하루 한 번 실행해야 합니다. 개발 환경에서는 `false`로 비활성화할 수 있습니다.
+
+## Meta 정책 카탈로그
+
+`scripts/seed_meta_policy_catalog.py`는 Meta 커뮤니티 기준 27개 항목의 제목·공식 URL·삐빅
+검수 카테고리를 `policy_catalog_entries`에 upsert합니다. 정책 본문 전문을 복제하지 않습니다.

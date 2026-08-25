@@ -1,0 +1,1 @@
+"""Incident-index application services."""
