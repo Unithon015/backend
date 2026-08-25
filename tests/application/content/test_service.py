@@ -27,6 +27,15 @@ class InMemoryContentSubmissionRepository(ContentSubmissionRepository):
     async def list_recent(self, limit: int) -> list[ContentSubmission]:
         return list(self.items.values())[:limit]
 
+    async def list_by_owner(self, owner_id: UUID, limit: int) -> list[ContentSubmission]:
+        return [item for item in self.items.values() if item.owner_id == owner_id][:limit]
+
+    async def update_finding_status(self, finding_id, status):
+        return None
+
+    async def update_title(self, submission_id: UUID, title: str):
+        self.items[submission_id].title = title
+
     async def update_analysis_run(self, analysis_run):
         for submission in self.items.values():
             for index, existing in enumerate(submission.analysis_runs):
@@ -54,7 +63,7 @@ class ContentSubmissionServiceTest(unittest.IsolatedAsyncioTestCase):
                 UploadPayload(
                     filename="launch.png",
                     mime_type="image/png",
-                    content=b"not-a-real-image-but-storage-is-tested",
+                    content=b"\x89PNG\r\n\x1a\nimage-data",
                 )
             ],
         )
@@ -83,6 +92,20 @@ class ContentSubmissionServiceTest(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
+    async def test_rejects_a_file_with_a_spoofed_media_type(self):
+        with self.assertRaises(ContentSubmissionValidationError):
+            await self.service.create(
+                title=None,
+                caption_text=None,
+                files=[
+                    UploadPayload(
+                        filename="spoofed.png",
+                        mime_type="image/png",
+                        content=b"not-an-image",
+                    )
+                ],
+            )
+
     async def test_analysis_worker_transitions_a_real_submission(self):
         submission = await self.service.create(
             title=None,
@@ -101,3 +124,4 @@ class ContentSubmissionServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progressed.progress_percent, 50)
         self.assertEqual(completed.status, AnalysisStatus.COMPLETED)
         self.assertEqual(completed.progress_percent, 100)
+        self.assertEqual(completed.review_context_snapshot, {})

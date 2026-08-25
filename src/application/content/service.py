@@ -138,6 +138,10 @@ class ContentSubmissionService:
                 raise ContentSubmissionValidationError(
                     "MP4 영상 또는 JPG, PNG, WEBP 이미지 파일만 업로드할 수 있습니다."
                 )
+            if not self._matches_declared_mime_type(payload):
+                raise ContentSubmissionValidationError(
+                    "The uploaded file does not match its declared media type."
+                )
             file_size = len(payload.content)
             if file_size == 0:
                 raise ContentSubmissionValidationError("빈 파일은 업로드할 수 없습니다.")
@@ -147,6 +151,19 @@ class ContentSubmissionService:
 
         if total_bytes > config.MAX_UPLOAD_TOTAL_BYTES:
             raise ContentSubmissionValidationError("한 번의 총 업로드 크기는 50MB 이하여야 합니다.")
+
+    @staticmethod
+    def _matches_declared_mime_type(payload: UploadPayload) -> bool:
+        content = payload.content
+        signatures = {
+            "image/jpeg": lambda: content.startswith(b"\xff\xd8\xff"),
+            "image/png": lambda: content.startswith(b"\x89PNG\r\n\x1a\n"),
+            "image/webp": lambda: len(content) >= 12
+            and content.startswith(b"RIFF")
+            and content[8:12] == b"WEBP",
+            "video/mp4": lambda: len(content) >= 12 and content[4:8] == b"ftyp",
+        }
+        return signatures[payload.mime_type]()
 
     @staticmethod
     def _resolve_title(

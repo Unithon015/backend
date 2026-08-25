@@ -4,6 +4,8 @@ import json
 
 from openai import AsyncOpenAI
 
+from src.application.content.review_context import ReviewContext
+from src.domain.audience_profile.entity import AudienceProfile
 from src.domain.content.entity import EvidenceLayer, FindingEvidence, ReviewFinding, ReviewPriority
 from src.infrastructure.policy_catalog.context import IncidentPromptContext, PolicyPromptContext
 
@@ -88,13 +90,19 @@ async def analyze_general(
     *,
     text: str | None = None,
     images: list[tuple[bytes, str]] | None = None,
+    audience_profile: AudienceProfile | None = None,
+    review_context: ReviewContext | None = None,
     api_key: str,
 ) -> GeneralAnalysisResult:
     raw = await _request_json(
         text=text,
         images=images or [],
         api_key=api_key,
-        system_prompt=_GENERAL_SYSTEM_PROMPT,
+        system_prompt=_with_audience_context(
+            _GENERAL_SYSTEM_PROMPT,
+            audience_profile,
+            review_context,
+        ),
     )
     search_context = raw.get("search_context") or {}
     terms = tuple(
@@ -117,6 +125,8 @@ async def analyze_references(
     api_key: str,
     policy_context: list[PolicyPromptContext],
     incident_context: list[IncidentPromptContext],
+    audience_profile: AudienceProfile | None = None,
+    review_context: ReviewContext | None = None,
 ) -> list[ReviewFinding]:
     if not policy_context and not incident_context:
         return []
@@ -124,7 +134,11 @@ async def analyze_references(
         text=text,
         images=images or [],
         api_key=api_key,
-        system_prompt=_build_reference_system_prompt(policy_context, incident_context),
+        system_prompt=_with_audience_context(
+            _build_reference_system_prompt(policy_context, incident_context),
+            audience_profile,
+            review_context,
+        ),
     )
     return _validate_reference_findings(
         _parse(raw.get("findings", [])),
@@ -210,6 +224,34 @@ DB 후보:
     }}
   ]
 }}"""
+
+
+def _audience_context_prompt(profile: AudienceProfile) -> str:
+    return """Account review context (configured once by the account owner):
+- Main content categories: {content_categories}
+- Main viewer contexts: {audience_contexts}
+- Account purposes: {account_purposes}
+
+Use this context only to decide whether a real expression should be recommended for human review. Do not infer unprovided personal characteristics, and do not create a finding based on age or gender alone.""".format(
+        content_categories=", ".join(profile.content_categories),
+        audience_contexts=", ".join(profile.audience_contexts),
+        account_purposes=", ".join(profile.account_purposes),
+    )
+
+
+def _with_audience_context(
+    system_prompt: str,
+    audience_profile: AudienceProfile | None,
+    review_context: ReviewContext | None,
+) -> str:
+    additions: list[str] = []
+    if audience_profile:
+        additions.append(_audience_context_prompt(audience_profile))
+    if review_context and review_context.focus_topics:
+        additions.append(f"Priority review topics: {', '.join(review_context.focus_topics)}")
+    if not additions:
+        return system_prompt
+    return f"{system_prompt}\n\n{'\n\n'.join(additions)}"
 
 
 def _build_user_content(text: str | None, images: list[tuple[bytes, str]]) -> list[dict]:

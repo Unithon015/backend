@@ -81,6 +81,7 @@ class AnalysisRun:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     findings: list[ReviewFinding] = field(default_factory=list)
+    review_context_snapshot: dict[str, object] = field(default_factory=dict)
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

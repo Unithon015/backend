@@ -2,6 +2,8 @@ import json
 
 from openai import AsyncOpenAI
 
+from src.application.content.review_context import PolicyCandidate, ReviewContext
+from src.domain.audience_profile.entity import AudienceProfile
 from src.domain.content.entity import EvidenceLayer, FindingEvidence, ReviewFinding, ReviewPriority
 
 _SYSTEM_PROMPT = """당신은 한국 콘텐츠 크리에이터를 위한 콘텐츠 사전 검수 보조 AI입니다.
@@ -50,22 +52,79 @@ LOW: 참고 사항
 }"""
 
 
-async def analyze_text(text: str, *, api_key: str) -> list[ReviewFinding]:
+async def analyze_text(
+    text: str,
+    *,
+    audience_profile: AudienceProfile | None = None,
+    review_context: ReviewContext | None = None,
+    api_key: str,
+) -> list[ReviewFinding]:
     client = AsyncOpenAI(api_key=api_key)
     response = await client.chat.completions.create(
         model="gpt-4o",
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt(audience_profile, review_context)},
             {"role": "user", "content": f"다음 텍스트를 검수해주세요:\n\n{text[:8000]}"},
         ],
         temperature=0.1,
     )
     raw = json.loads(response.choices[0].message.content)
-    return _parse(raw.get("findings", []))
+    return _parse(raw.get("findings", []), _allowed_rule_candidates(review_context))
 
 
-def _parse(items: list[dict]) -> list[ReviewFinding]:
+def _system_prompt(
+    audience_profile: AudienceProfile | None,
+    review_context: ReviewContext | None = None,
+) -> str:
+    additions = []
+    if audience_profile:
+        additions.append(_audience_context_prompt(audience_profile))
+    if review_context and not review_context.is_empty:
+        additions.append(_review_context_prompt(review_context))
+    return _SYSTEM_PROMPT if not additions else f"{_SYSTEM_PROMPT}\n\n{'\n\n'.join(additions)}"
+
+
+def _audience_context_prompt(profile: AudienceProfile) -> str:
+    return """Account review context (configured once by the account owner):
+- Main content categories: {content_categories}
+- Main viewer contexts: {audience_contexts}
+- Account purposes: {account_purposes}
+
+Use this context only to decide whether a real expression should be recommended for human review. Do not infer unprovided personal characteristics, and do not create a finding based on age or gender alone. Clearly distinguish a platform-policy concern from a community-context concern.""".format(
+        content_categories=", ".join(profile.content_categories),
+        audience_contexts=", ".join(profile.audience_contexts),
+        account_purposes=", ".join(profile.account_purposes),
+    )
+
+
+def _review_context_prompt(context: ReviewContext) -> str:
+    lines = ["Preselected review context (candidate references, not automatic violations):"]
+    if context.focus_topics:
+        lines.append(f"- Focus topics: {', '.join(context.focus_topics)}")
+    if context.policy_candidates:
+        lines.append("- Platform-policy candidates:")
+        lines.extend(
+            f"  - {item.policy_code} | {item.title} | {item.source_url}"
+            for item in context.policy_candidates
+        )
+    lines.append(
+        "Use a policy candidate as RULE evidence only when it directly applies. "
+        "Do not generate any other source URL or evidence."
+    )
+    return "\n".join(lines)
+
+
+def _allowed_rule_candidates(review_context: ReviewContext | None) -> dict[str, PolicyCandidate]:
+    if not review_context:
+        return {}
+    return {candidate.source_url: candidate for candidate in review_context.policy_candidates}
+
+
+def _parse(
+    items: list[dict],
+    allowed_rule_candidates: dict[str, PolicyCandidate] | None = None,
+) -> list[ReviewFinding]:
     findings = []
     for item in items:
         try:
@@ -79,12 +138,21 @@ def _parse(items: list[dict]) -> list[ReviewFinding]:
                 layer = EvidenceLayer(ev.get("layer", "RULE"))
             except ValueError:
                 layer = EvidenceLayer.RULE
+            candidate = (
+                allowed_rule_candidates.get(ev.get("source_url", ""))
+                if allowed_rule_candidates is not None
+                else None
+            )
+            if layer != EvidenceLayer.RULE or (
+                allowed_rule_candidates is not None and candidate is None
+            ):
+                continue
             evidences.append(
                 FindingEvidence(
                     layer=layer,
-                    title=ev.get("title", ""),
-                    source_url=ev.get("source_url", ""),
-                    excerpt=ev.get("excerpt"),
+                    title=candidate.title if candidate else ev.get("title", ""),
+                    source_url=candidate.source_url if candidate else ev.get("source_url", ""),
+                    excerpt=None,
                 )
             )
 

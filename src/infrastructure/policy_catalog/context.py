@@ -60,17 +60,22 @@ async def search_relevant_reference_context(
             scored_policies.append((score, entry.policy_code, entry))
     scored_policies.sort(key=lambda item: (-item[0], item[1]))
 
-    incident_result = await session.execute(
-        select(NamuWikiIncidentIndexEntryModel).where(
-            NamuWikiIncidentIndexEntryModel.is_active.is_(True)
-        )
-    )
     scored_incidents = []
-    for entry in incident_result.scalars().all():
-        score = _match_score(normalized_query, query_tokens, [entry.title, *(entry.match_keywords or [])])
-        if score:
-            scored_incidents.append((score, entry.year, entry.title, entry))
-    scored_incidents.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    if incident_limit > 0:
+        incident_result = await session.execute(
+            select(NamuWikiIncidentIndexEntryModel).where(
+                NamuWikiIncidentIndexEntryModel.is_active.is_(True)
+            )
+        )
+        for entry in incident_result.scalars().all():
+            score = _match_score(
+                normalized_query,
+                query_tokens,
+                [entry.title, *(entry.match_keywords or [])],
+            )
+            if score:
+                scored_incidents.append((score, entry.year, entry.title, entry))
+        scored_incidents.sort(key=lambda item: (-item[0], -item[1], item[2]))
 
     policies = [
         PolicyPromptContext(
