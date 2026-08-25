@@ -1,22 +1,37 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from src.infrastructure.persistence.database import build_session_factory
+from src.domain.incident_index.entity import IncidentSyncSummary
 
 from .service import SyncNamuWikiIncidentIndexService
 
 SEOUL = ZoneInfo("Asia/Seoul")
+INITIAL_SYNC_YEARS = (2024, 2025, 2026)
 
 
 def should_start_daily_sync() -> bool:
     enabled = os.getenv("NAMU_WIKI_2026_SYNC_ENABLED", "true").lower()
     return enabled in {"1", "true", "yes"} and bool(os.getenv("DATABASE_URL"))
+
+
+def should_start_initial_sync() -> bool:
+    enabled = os.getenv("NAMU_WIKI_INITIAL_SYNC_ENABLED", "true").lower()
+    return enabled in {"1", "true", "yes"} and bool(os.getenv("DATABASE_URL"))
+
+
+async def sync_initial_years_if_needed(
+    service_factory: Callable[[], SyncNamuWikiIncidentIndexService] | None = None,
+) -> list[IncidentSyncSummary]:
+    """Synchronize 2024--2026 once when the application first starts."""
+    factory = service_factory or (lambda: SyncNamuWikiIncidentIndexService(build_session_factory()))
+    return await factory().sync_initial_years_if_needed(list(INITIAL_SYNC_YEARS))
 
 
 def build_daily_2026_scheduler(

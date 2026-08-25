@@ -31,3 +31,16 @@ class TestSqlAlchemyIncidentIndexRepository(unittest.TestCase):
         self.assertEqual(initial.inserted_count, 2)
         self.assertEqual(follow_up.inserted_count, 0)
         self.assertFalse(removed.is_active)
+
+    def test_finds_active_entries_and_only_reports_unsynced_years(self) -> None:
+        entry = IncidentIndexEntry("사건 A", "사건a", "https://namu.wiki/w/a", 2025)
+        self.repository.sync_year(self.session, 2025, [entry])
+        self.session.commit()
+
+        active_entries = self.repository.find_active_entries(self.session, 2025)
+        missing_years = self.repository.years_needing_initial_sync(
+            self.session, [2024, 2025, 2026]
+        )
+
+        self.assertEqual(active_entries, [entry])
+        self.assertEqual(missing_years, [2024, 2026])

@@ -16,6 +16,45 @@ from .models import (
 
 
 class SqlAlchemyIncidentIndexRepository:
+    def years_needing_initial_sync(
+        self,
+        session: Session,
+        incident_years: list[int],
+    ) -> list[int]:
+        """Return years that do not yet have one completed index sync."""
+        sources = session.scalars(
+            select(NamuWikiIncidentSourceModel).where(
+                NamuWikiIncidentSourceModel.incident_year.in_(incident_years)
+            )
+        )
+        completed_years = {
+            source.incident_year for source in sources if source.last_synced_at is not None
+        }
+        return [year for year in incident_years if year not in completed_years]
+
+    def find_active_entries(
+        self,
+        session: Session,
+        incident_year: int,
+    ) -> list[IncidentIndexEntry]:
+        models = session.scalars(
+            select(NamuWikiIncidentIndexEntryModel)
+            .where(
+                NamuWikiIncidentIndexEntryModel.incident_year == incident_year,
+                NamuWikiIncidentIndexEntryModel.is_active.is_(True),
+            )
+            .order_by(NamuWikiIncidentIndexEntryModel.normalized_title)
+        )
+        return [
+            IncidentIndexEntry(
+                title=model.title,
+                normalized_title=model.normalized_title,
+                article_url=model.article_url,
+                incident_year=model.incident_year,
+            )
+            for model in models
+        ]
+
     def sync_year(
         self,
         session: Session,

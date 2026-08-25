@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 
 from src.application.incident_index.scheduler import (
     build_daily_2026_scheduler,
     should_start_daily_sync,
+    should_start_initial_sync,
+    sync_initial_years_if_needed,
 )
 from src.interface.auth.router import router as auth_router
 from src.interface.content.router import router as content_router
@@ -15,11 +18,25 @@ from src.infrastructure.persistence.models import Base as IncidentIndexBase
 from src.interface.namu_wiki.router import router as namu_wiki_router
 from src.interface.user.router import router as user_router
 
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     async with engine.begin() as connection:
         await connection.run_sync(ApplicationBase.metadata.create_all)
         await connection.run_sync(IncidentIndexBase.metadata.create_all)
+
+    if should_start_initial_sync():
+        try:
+            summaries = await sync_initial_years_if_needed()
+            if summaries:
+                logger.info(
+                    "Completed initial Namu Wiki incident sync for years: %s",
+                    ", ".join(str(summary.incident_year) for summary in summaries),
+                )
+        except Exception:
+            # The API should remain available even when Namu Wiki is temporarily unreachable.
+            logger.exception("Initial Namu Wiki incident sync failed; it will retry on next restart.")
 
     scheduler = None
     if should_start_daily_sync():
