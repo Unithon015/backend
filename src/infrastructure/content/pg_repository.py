@@ -131,6 +131,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                 reason=finding.reason,
                 start_ms=finding.start_ms,
                 end_ms=finding.end_ms,
+                media_types=finding.media_types,
                 created_at=finding.created_at,
             )
         )
@@ -195,6 +196,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                         asset_id=finding.asset_id,
                         start_ms=finding.start_ms,
                         end_ms=finding.end_ms,
+                        media_types=finding.media_types or [],
                         created_at=finding.created_at,
                         evidences=[
                             FindingEvidence(

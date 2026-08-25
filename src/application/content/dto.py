@@ -39,6 +39,7 @@ class FindingEvidenceResponse(BaseModel):
 
 class ReviewFindingResponse(BaseModel):
     id: UUID
+    type: list[str]
     category_code: str = Field(description="R-01 through R-08 review category")
     priority: ReviewPriority
     signal_type: str
@@ -52,6 +53,7 @@ class ReviewFindingResponse(BaseModel):
 
 class AnalysisStatusResponse(BaseModel):
     id: UUID
+    type: list[str]
     status: AnalysisStatus
     current_step: str | None
     progress_percent: int = Field(ge=0, le=100)
