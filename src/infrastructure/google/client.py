@@ -14,6 +14,7 @@ def get_login_url() -> str:
         "response_type": "code",
         "scope": "openid email profile",
         "access_type": "offline",
+        "prompt": "select_account",
     }
     return f"{_AUTH_URL}?{urlencode(params)}"
 
