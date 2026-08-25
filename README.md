@@ -51,10 +51,15 @@ python scripts/seed_meta_policy_catalog.py
 
 | Endpoint | 설명 |
 | --- | --- |
-| `GET /namu-wiki/incidents/{year}` | DB에 적재된 해당 연도의 활성 사건사고 제목·문서 URL 반환 |
+| `GET /namu-wiki/incidents/{year}` | DB에 적재된 해당 연도의 활성 사건사고 인덱스 반환 |
 | `POST /namu-wiki/incidents/{year}/sync` | 해당 연도(2024·2025·2026) 분류를 나무위키에서 즉시 수집·upsert 후 반환 |
 
 일반 화면은 `GET`으로 DB 인덱스만 조회합니다. `POST .../sync`는 크롤링을 발생시키므로 운영 환경에서는 관리자 전용으로 제한해야 합니다.
+
+사건사고 인덱스의 핵심 필드는 `id`, `title`, `year`, `risk_categories`,
+`match_keywords`, `source_url`, `source_type`입니다. 나무위키 수집 시
+`risk_categories`는 근거 없는 분류를 피하기 위해 빈 배열로 저장하고,
+`match_keywords`는 제목·제목 토큰·정규화 제목으로 생성합니다.
 
 ## Meta 정책 카탈로그
 

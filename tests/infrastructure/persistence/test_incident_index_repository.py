@@ -19,21 +19,38 @@ class TestSqlAlchemyIncidentIndexRepository(unittest.TestCase):
         self.session.close()
 
     def test_upserts_and_marks_removed_entries_inactive(self) -> None:
-        first = IncidentIndexEntry("사건 A", "사건a", "https://namu.wiki/w/a", 2025)
-        second = IncidentIndexEntry("사건 B", "사건b", "https://namu.wiki/w/b", 2025)
+        first = IncidentIndexEntry(
+            title="사건 A",
+            year=2025,
+            source_url="https://namu.wiki/w/a",
+            match_keywords=("사건 A", "사건a"),
+        )
+        second = IncidentIndexEntry(
+            title="사건 B",
+            year=2025,
+            source_url="https://namu.wiki/w/b",
+            risk_categories=("VIOLENCE",),
+            match_keywords=("사건 B", "사건b"),
+        )
 
         initial = self.repository.sync_year(self.session, 2025, [first, second])
         self.session.commit()
         follow_up = self.repository.sync_year(self.session, 2025, [first])
         self.session.commit()
 
-        removed = self.session.query(NamuWikiIncidentIndexEntryModel).filter_by(article_url=second.article_url).one()
+        removed = self.session.query(NamuWikiIncidentIndexEntryModel).filter_by(source_url=second.source_url).one()
         self.assertEqual(initial.inserted_count, 2)
         self.assertEqual(follow_up.inserted_count, 0)
         self.assertFalse(removed.is_active)
 
     def test_finds_active_entries_and_only_reports_unsynced_years(self) -> None:
-        entry = IncidentIndexEntry("사건 A", "사건a", "https://namu.wiki/w/a", 2025)
+        entry = IncidentIndexEntry(
+            title="사건 A",
+            year=2025,
+            source_url="https://namu.wiki/w/a",
+            risk_categories=("VIOLENCE",),
+            match_keywords=("사건 A", "사건a"),
+        )
         self.repository.sync_year(self.session, 2025, [entry])
         self.session.commit()
 

@@ -46,9 +46,9 @@ class NamuWikiIncidentCategoryParser:
                 continue
             entries[link.article_url] = IncidentIndexEntry(
                 title=link.title,
-                normalized_title=self._normalize_title(link.title),
-                article_url=link.article_url,
-                incident_year=incident_year,
+                year=incident_year,
+                source_url=link.article_url,
+                match_keywords=tuple(self._match_keywords(link.title)),
             )
 
         if not entries:
@@ -80,6 +80,12 @@ class NamuWikiIncidentCategoryParser:
     def _normalize_title(title: str) -> str:
         normalized = re.sub(r"[^0-9a-z가-힣]+", "", title.lower())
         return normalized
+
+    @classmethod
+    def _match_keywords(cls, title: str) -> list[str]:
+        words = [word for word in re.split(r"\s+", title) if len(word) >= 2]
+        candidates = [title, *words, cls._normalize_title(title)]
+        return list(dict.fromkeys(keyword for keyword in candidates if keyword))
 
 
 class HttpNamuWikiIncidentCategoryGateway:

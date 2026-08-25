@@ -15,6 +15,7 @@ from src.database import engine
 from src.infrastructure.db import models  # noqa: F401 - registers application models
 from src.infrastructure.db.base import Base as ApplicationBase
 from src.infrastructure.persistence.models import Base as IncidentIndexBase
+from src.infrastructure.persistence.incident_index_migrations import upgrade_incident_index_schema
 from src.interface.namu_wiki.router import router as namu_wiki_router
 from src.interface.user.router import router as user_router
 
@@ -25,6 +26,7 @@ async def lifespan(_: FastAPI):
     async with engine.begin() as connection:
         await connection.run_sync(ApplicationBase.metadata.create_all)
         await connection.run_sync(IncidentIndexBase.metadata.create_all)
+        await connection.run_sync(upgrade_incident_index_schema)
 
     if should_start_initial_sync():
         try:
