@@ -42,7 +42,11 @@ class ContentAnalysisService:
         )
 
     async def complete(
-        self, submission_id: UUID, *, findings: list[ReviewFinding]
+        self,
+        submission_id: UUID,
+        *,
+        findings: list[ReviewFinding],
+        review_context_snapshot: dict[str, object] | None = None,
     ) -> AnalysisRun:
         run = await self._latest_run(submission_id)
         if run.status != AnalysisStatus.ANALYZING:
@@ -55,6 +59,7 @@ class ContentAnalysisService:
                 progress_percent=100,
                 completed_at=datetime.now(timezone.utc),
                 findings=findings,
+                review_context_snapshot=review_context_snapshot or {},
             )
         )
 

@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import config
@@ -28,7 +30,6 @@ from src.domain.content.entity import FindingStatus
 from src.application.content.analysis_worker import run_analysis
 from src.database import get_db
 from src.domain.content.entity import ContentSubmission
-from src.infrastructure.content.s3_storage import S3ContentStorage
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 from src.interface.deps import get_current_user_id
 
@@ -36,6 +37,9 @@ router = APIRouter(prefix="/contents", tags=["contents"])
 
 
 def _storage() -> ContentStorage:
+    # Lazy import keeps local/unit-test environments independent from boto3.
+    from src.infrastructure.content.s3_storage import S3ContentStorage
+
     return S3ContentStorage(
         bucket=config.S3_BUCKET_NAME,
         region=config.AWS_REGION,
@@ -52,30 +56,35 @@ def _service(db: AsyncSession = Depends(get_db)) -> ContentSubmissionService:
 async def create_content(
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile | None, File(description="이미지 파일 (선택)")] = None,
+    files: Annotated[list[UploadFile] | None, File()] = None,
     text: Annotated[str | None, Form()] = None,
+    current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
-    owner_id: UUID = Depends(get_current_user_id),
+    storage: ContentStorage = Depends(_storage),
 ):
-    payloads = []
-    if file and file.filename:
-        payloads.append(UploadPayload(
-            filename=file.filename,
-            mime_type=file.content_type or "application/octet-stream",
-            content=await file.read(),
-        ))
+    if not config.OPEN_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Content analysis is temporarily unavailable",
+        )
+    uploads = [item for item in [file, *(files or [])] if item and item.filename]
+    payloads = await _read_uploads(uploads)
     try:
-        submission = await service.create(title=None, caption_text=text, files=payloads, owner_id=owner_id)
+        submission = await service.create(
+            title=None,
+            caption_text=text,
+            files=payloads,
+            owner_id=current_user_id,
+        )
     except ContentSubmissionValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    has_content = submission.caption_text or submission.assets
-    if has_content and config.OPEN_API_KEY:
-        background_tasks.add_task(
-            run_analysis,
-            submission.id,
-            api_key=config.OPEN_API_KEY,
-            storage=_storage(),
-        )
+    background_tasks.add_task(
+        run_analysis,
+        submission.id,
+        api_key=config.OPEN_API_KEY,
+        storage=storage,
+    )
 
     return _submission_response(submission)
 
@@ -108,26 +117,29 @@ async def list_my_contents(
 @router.get("", response_model=RecentContentResponse)
 async def list_recent_contents(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
 ):
-    submissions = await service.list_recent(limit)
+    submissions = await service.list_by_owner(current_user_id, limit)
     return RecentContentResponse(items=[_submission_response(submission) for submission in submissions])
 
 
 @router.get("/{submission_id}", response_model=ContentSubmissionResponse)
 async def get_content(
     submission_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
 ):
-    return _submission_response(await _get_submission(service, submission_id))
+    return _submission_response(await _get_submission(service, submission_id, current_user_id))
 
 
 @router.get("/{submission_id}/analysis", response_model=AnalysisStatusResponse)
 async def get_analysis_status(
     submission_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     service: ContentSubmissionService = Depends(_service),
 ):
-    submission = await _get_submission(service, submission_id)
+    submission = await _get_submission(service, submission_id, current_user_id)
     run = submission.latest_analysis
 
     content_types: list[str] = []
@@ -186,7 +198,7 @@ async def update_finding_status(
     service: ContentSubmissionService = Depends(_service),
     owner_id: UUID = Depends(get_current_user_id),
 ):
-    submission = await _get_submission(service, submission_id)
+    submission = await _get_submission(service, submission_id, owner_id)
     if submission.owner_id != owner_id:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
     try:
@@ -199,10 +211,12 @@ async def update_finding_status(
 async def download_asset(
     submission_id: UUID,
     asset_id: UUID,
+    token: str = Query(),
     service: ContentSubmissionService = Depends(_service),
     storage: ContentStorage = Depends(_storage),
 ):
-    submission = await _get_submission(service, submission_id)
+    _verify_asset_download_token(token, submission_id, asset_id)
+    submission = await _get_submission_by_id(service, submission_id)
     asset = next((asset for asset in submission.assets if asset.id == asset_id), None)
     if not asset:
         raise HTTPException(status_code=404, detail="Content asset not found")
@@ -214,6 +228,15 @@ async def download_asset(
 
 
 async def _get_submission(
+    service: ContentSubmissionService, submission_id: UUID, owner_id: UUID
+) -> ContentSubmission:
+    submission = await _get_submission_by_id(service, submission_id)
+    if submission.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="Content submission not found")
+    return submission
+
+
+async def _get_submission_by_id(
     service: ContentSubmissionService, submission_id: UUID
 ) -> ContentSubmission:
     try:
@@ -245,8 +268,52 @@ def _submission_response(submission: ContentSubmission) -> ContentSubmissionResp
                 original_filename=asset.original_filename,
                 mime_type=asset.mime_type,
                 byte_size=asset.byte_size,
-                download_url=f"/contents/{submission.id}/assets/{asset.id}",
+                download_url=(
+                    f"/contents/{submission.id}/assets/{asset.id}"
+                    f"?token={_asset_download_token(submission.id, asset.id)}"
+                ),
             )
             for asset in submission.assets
         ],
     )
+
+
+async def _read_uploads(uploads: list[UploadFile]) -> list[UploadPayload]:
+    payloads: list[UploadPayload] = []
+    total_bytes = 0
+    for upload in uploads:
+        content = await upload.read(config.MAX_UPLOAD_FILE_BYTES + 1)
+        if len(content) > config.MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(status_code=422, detail="A file exceeds the upload size limit")
+        total_bytes += len(content)
+        if total_bytes > config.MAX_UPLOAD_TOTAL_BYTES:
+            raise HTTPException(status_code=422, detail="Total upload size exceeds the limit")
+        payloads.append(
+            UploadPayload(
+                filename=upload.filename or "",
+                mime_type=upload.content_type or "application/octet-stream",
+                content=content,
+            )
+        )
+    return payloads
+
+
+def _asset_download_token(submission_id: UUID, asset_id: UUID) -> str:
+    return jwt.encode(
+        {
+            "sub": str(submission_id),
+            "asset_id": str(asset_id),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+        config.JWT_SECRET,
+        algorithm=config.JWT_ALGORITHM,
+    )
+
+
+def _verify_asset_download_token(token: str, submission_id: UUID, asset_id: UUID) -> None:
+    try:
+        payload = jwt.decode(token, config.JWT_SECRET, algorithms=[config.JWT_ALGORITHM])
+        if payload.get("sub") != str(submission_id) or payload.get("asset_id") != str(asset_id):
+            raise ValueError("Asset token target mismatch")
+    except (JWTError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Content asset not found") from exc

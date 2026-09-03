@@ -1,6 +1,27 @@
 import unittest
 
-from src.infrastructure.policy_catalog.context import _match_score, _prepare_query
+from src.infrastructure.policy_catalog.context import (
+    _match_score,
+    _prepare_query,
+    search_relevant_reference_context,
+)
+
+
+class _EmptyResult:
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
+class _CountingSession:
+    def __init__(self):
+        self.calls = 0
+
+    async def execute(self, _statement):
+        self.calls += 1
+        return _EmptyResult()
 
 
 class TestPolicyContextMatching(unittest.TestCase):
@@ -14,3 +35,18 @@ class TestPolicyContextMatching(unittest.TestCase):
         self.assertGreater(incident_score, 0)
         self.assertGreater(policy_score, 0)
         self.assertEqual(unrelated_score, 0)
+
+
+class TestMetaOnlyReferenceSearch(unittest.IsolatedAsyncioTestCase):
+    async def test_does_not_query_incidents_when_the_worker_disables_them(self):
+        session = _CountingSession()
+
+        policies, incidents = await search_relevant_reference_context(
+            session,
+            "diet review",
+            incident_limit=0,
+        )
+
+        self.assertEqual(session.calls, 1)
+        self.assertEqual(policies, [])
+        self.assertEqual(incidents, [])

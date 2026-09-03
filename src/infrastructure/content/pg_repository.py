@@ -70,7 +70,9 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
 
     async def list_recent(self, limit: int) -> list[ContentSubmission]:
         result = await self._session.execute(
-            self._base_query().order_by(ContentSubmissionModel.created_at.desc()).limit(limit)
+            self._base_query()
+            .order_by(ContentSubmissionModel.created_at.desc())
+            .limit(limit)
         )
         return [self._to_entity(model) for model in result.scalars().all()]
 
@@ -102,6 +104,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
         model.error_message = analysis_run.error_message
         model.started_at = analysis_run.started_at
         model.completed_at = analysis_run.completed_at
+        model.review_context_snapshot = analysis_run.review_context_snapshot
         model.submission.status = analysis_run.status.value
         model.submission.updated_at = datetime.now(timezone.utc)
         model.findings.clear()
@@ -122,6 +125,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                 error_message=analysis_run.error_message,
                 started_at=analysis_run.started_at,
                 completed_at=analysis_run.completed_at,
+                review_context_snapshot=analysis_run.review_context_snapshot,
                 created_at=analysis_run.created_at,
             )
         )
@@ -214,6 +218,7 @@ class PostgresContentSubmissionRepository(ContentSubmissionRepository):
                 error_message=analysis_run.error_message,
                 started_at=analysis_run.started_at,
                 completed_at=analysis_run.completed_at,
+                review_context_snapshot=analysis_run.review_context_snapshot or {},
                 created_at=analysis_run.created_at,
                 findings=[
                     ReviewFinding(

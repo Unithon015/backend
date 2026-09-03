@@ -7,7 +7,7 @@ _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
-def get_login_url() -> str:
+def get_login_url(state: str) -> str:
     params = {
         "client_id": config.GOOGLE_CLIENT_ID,
         "redirect_uri": config.GOOGLE_REDIRECT_URI,
@@ -15,6 +15,7 @@ def get_login_url() -> str:
         "scope": "openid email profile",
         "access_type": "offline",
         "prompt": "select_account",
+        "state": state,
     }
     return f"{_AUTH_URL}?{urlencode(params)}"
 

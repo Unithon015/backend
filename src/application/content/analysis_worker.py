@@ -2,10 +2,16 @@ from uuid import UUID
 
 from src.application.content.analysis_service import ContentAnalysisService
 from src.application.content.service import ContentStorage
+from src.application.content.review_context import ReviewContext, snapshot_for_audit
 from src.domain.content.entity import AssetType
+from src.infrastructure.audience_profile.pg_repository import PostgresAudienceProfileRepository
 from src.infrastructure.content.pg_repository import PostgresContentSubmissionRepository
 from src.infrastructure.openai.analyzer import analyze_general, analyze_references
-from src.infrastructure.policy_catalog.context import search_relevant_reference_context
+from src.infrastructure.policy_catalog.context import (
+    PolicyPromptContext,
+    search_relevant_reference_context,
+)
+from src.infrastructure.review_context.resolver import DatabaseReviewContextResolver
 
 
 async def run_analysis(
@@ -25,15 +31,28 @@ async def run_analysis(
             assert submission
 
             images = await _read_images(submission.assets, storage)
+            audience_profile = None
+            if submission.owner_id:
+                audience_profile = await PostgresAudienceProfileRepository(db).find_by_user_id(
+                    submission.owner_id
+                )
+            review_context = await DatabaseReviewContextResolver(db).resolve(audience_profile)
+            audit_snapshot = snapshot_for_audit(audience_profile, review_context)
             general_result = await analyze_general(
                 text=submission.caption_text or None,
                 images=images if images else None,
+                audience_profile=audience_profile,
+                review_context=review_context,
                 api_key=api_key,
             )
             if general_result.title:
                 await repo.update_title(submission_id, general_result.title)
             if general_result.findings:
-                await service.complete(submission_id, findings=general_result.findings)
+                await service.complete(
+                    submission_id,
+                    findings=general_result.findings,
+                    review_context_snapshot=audit_snapshot,
+                )
                 return
 
             await service.report_progress(
@@ -42,12 +61,21 @@ async def run_analysis(
                 progress_percent=55,
             )
             query_text = general_result.retrieval_query(submission.caption_text)
-            policy_context, incident_context = await search_relevant_reference_context(
+            matched_policy_context, _ = await search_relevant_reference_context(
                 db,
                 query_text,
+                incident_limit=0,
             )
-            if not policy_context and not incident_context:
-                await service.complete(submission_id, findings=[])
+            policy_context = _merge_policy_context(
+                _profile_policy_context(review_context),
+                matched_policy_context,
+            )
+            if not policy_context:
+                await service.complete(
+                    submission_id,
+                    findings=[],
+                    review_context_snapshot=audit_snapshot,
+                )
                 return
 
             await service.report_progress(
@@ -60,9 +88,15 @@ async def run_analysis(
                 images=images if images else None,
                 api_key=api_key,
                 policy_context=policy_context,
-                incident_context=incident_context,
+                incident_context=[],
+                audience_profile=audience_profile,
+                review_context=review_context,
             )
-            await service.complete(submission_id, findings=findings)
+            await service.complete(
+                submission_id,
+                findings=findings,
+                review_context_snapshot=audit_snapshot,
+            )
         except Exception as exc:
             await service.fail(submission_id, message=str(exc))
 
@@ -78,3 +112,29 @@ async def _read_images(assets, storage: ContentStorage) -> list[tuple[bytes, str
         except Exception:
             pass
     return result
+
+
+def _profile_policy_context(review_context: ReviewContext) -> list[PolicyPromptContext]:
+    return [
+        PolicyPromptContext(
+            policy_code=item.policy_code,
+            title=item.title,
+            review_category=item.review_category,
+            source_url=item.source_url,
+            policy_summary=item.policy_summary,
+            detection_hints=item.detection_hints,
+            applicable_media_types=item.applicable_media_types,
+        )
+        for item in review_context.policy_candidates
+    ]
+
+
+def _merge_policy_context(
+    preferred: list[PolicyPromptContext],
+    matched: list[PolicyPromptContext],
+    limit: int = 6,
+) -> list[PolicyPromptContext]:
+    merged: dict[str, PolicyPromptContext] = {}
+    for item in [*preferred, *matched]:
+        merged.setdefault(item.policy_code, item)
+    return list(merged.values())[:limit]
